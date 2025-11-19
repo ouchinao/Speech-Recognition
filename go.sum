@@ -1,0 +1,4 @@
+github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-20251113011526-d9b7613b34a3 h1:Q9Y55nRlNG9Cvn7NHkP93/ul4h0LpYXj6h3CPX34KVg=
+github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-20251113011526-d9b7613b34a3/go.mod h1:qyHjS/50ORo01H0NsuEEGsQR9VCtOcEye0gUl2sx1s8=
+github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b h1:WEuQWBxelOGHA6z9lABqaMLMrfwVyMdN3UgRLT+YUPo=
+github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b/go.mod h1:esZFQEUwqC+l76f2R8bIWSwXMaPbp79PppwZ1eJhFco=
