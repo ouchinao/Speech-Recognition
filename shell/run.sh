@@ -21,7 +21,7 @@ else
 fi
 
 # モデルファイルをチェック
-if [ ! -f "../models/ggml-tiny.bin" ]; then
+if [ ! -f "../models/ggml-small.bin" ]; then
     echo "❌ モデルファイルが見つかりません"
     echo "以下を実行してください："
     echo "  ./shell/setup.sh"
@@ -34,4 +34,4 @@ echo "======================================"
 echo ""
 
 # 実行
-go run ../main.go ../models/ggml-tiny.bin
+go run ../main.go ../models/ggml-small.bin
