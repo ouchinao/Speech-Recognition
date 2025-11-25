@@ -28,5 +28,5 @@ go.work.sum
 .env
 
 # model files
-models/*.bin
-models/*.gguf
+models/*
+models/*
