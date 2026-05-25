@@ -11,16 +11,16 @@ type AdaptiveVAD struct {
 	noiseLevel      float64
 	noiseStdDev     float64
 	calibrationData []float64
-	alpha           float64 // 指数移動平均の係数
+	alpha           float64 // exponential moving average coefficient
 }
 
 func NewAdaptiveVAD(sampleRate, mode int) *AdaptiveVAD {
-	// モードに応じた感度係数
+	// sensitivity coefficient per mode: 0=lenient, 1=moderate, 2=stricter (default), 3=strictest
 	sensitivity := map[int]float64{
-		0: 1.5, // 寛容
-		1: 2.0, // 中程度
-		2: 2.5, // やや厳格（デフォルト）
-		3: 3.5, // 非常に厳格
+		0: 1.5,
+		1: 2.0,
+		2: 2.5,
+		3: 3.5,
 	}
 
 	coefficient := sensitivity[mode]
@@ -33,7 +33,7 @@ func NewAdaptiveVAD(sampleRate, mode int) *AdaptiveVAD {
 		mode:            mode,
 		threshold:       0.02,
 		calibrationData: make([]float64, 0, 1000),
-		alpha:           0.1, // 10%で新しい値、90%で過去の値を重視
+		alpha:           0.1, // weight 10% new sample, 90% prior estimate
 	}
 }
 
@@ -41,20 +41,20 @@ func (v *AdaptiveVAD) Calibrate(buffer []byte) {
 	rms := v.CalculateRMS(buffer)
 	v.calibrationData = append(v.calibrationData, rms)
 
-	// キャリブレーション完了時に閾値を計算
+	// once enough samples are collected, compute the threshold
 	if len(v.calibrationData) >= 100 {
 		mean, stdDev := v.calculateStats(v.calibrationData)
 		v.noiseLevel = mean
 		v.noiseStdDev = stdDev
 
-		// 閾値 = 平均 + (標準偏差 × モード係数)
+		// threshold = mean + (stdDev * mode coefficient)
 		sensitivity := map[int]float64{0: 1.5, 1: 2.0, 2: 2.5, 3: 3.5}
 		v.threshold = mean + (stdDev * sensitivity[v.mode])
 	}
 }
 
 func (v *AdaptiveVAD) CalculateRMS(buffer []byte) float64 {
-	// 16-bit PCM → float64
+	// 16-bit PCM -> float64
 	var sum float64
 	samples := len(buffer) / 2
 
@@ -75,7 +75,7 @@ func (v *AdaptiveVAD) IsSpeech(buffer []byte) bool {
 func (v *AdaptiveVAD) UpdateThreshold(buffer []byte) {
 	rms := v.CalculateRMS(buffer)
 
-	// 指数移動平均で閾値を更新
+	// update noise level via exponential moving average
 	v.noiseLevel = (1-v.alpha)*v.noiseLevel + v.alpha*rms
 
 	sensitivity := map[int]float64{0: 1.5, 1: 2.0, 2: 2.5, 3: 3.5}

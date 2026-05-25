@@ -1,86 +1,76 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"syscall"
-	"time"
-	"encoding/json"
 	"speech-recognition/audio"
 	"speech-recognition/vad"
+	"syscall"
+	"time"
 
 	vosk "github.com/alphacep/vosk-api/go"
 )
 
 const (
-	sampleRate     = 16000
+	sampleRate      = 16000
 	framesPerBuffer = 1024
 	calibrationTime = 5 * time.Second
 )
 
 func main() {
-	// コマンドラインフラグ
-	modelPath := flag.String("models", "./models/vosk-model-ja-0.22", "VOSKモデルのパス")
-	vadMode := flag.Int("vad-mode", 1, "VAD感度 (0-3: 0=寛容、3=厳格)")
-	calibrationDuration := flag.Duration("calibration-time", calibrationTime, "キャリブレーション時間")
+	modelPath := flag.String("models", "./models/vosk-model-ja-0.22", "Path to VOSK model")
+	vadMode := flag.Int("vad-mode", 1, "VAD sensitivity (0-3: 0=lenient, 3=strict)")
+	calibrationDuration := flag.Duration("calibration-time", calibrationTime, "Calibration duration")
 	flag.Parse()
 
-	fmt.Println("🎤 VOSKリアルタイム音声認識 起動中...")
+	fmt.Println("VOSK real-time speech recognition starting...")
 
-	// VOSKモデルの読み込み
-	fmt.Printf("モデル読み込み中: %s\n", *modelPath)
+	fmt.Printf("Loading model: %s\n", *modelPath)
 	model, err := vosk.NewModel(*modelPath)
 	if err != nil {
-		log.Fatalf("モデル読み込みエラー: %v", err)
+		log.Fatalf("Failed to load model: %v", err)
 	}
 	defer model.Free()
-	fmt.Println("✅ モデル読み込み完了")
+	fmt.Println("Model loaded successfully")
 
-	// 音声認識器の作成
 	recognizer, err := vosk.NewRecognizer(model, float64(sampleRate))
 	if err != nil {
-		log.Fatalf("認識器作成エラー: %v", err)
+		log.Fatalf("Failed to create recognizer: %v", err)
 	}
 	defer recognizer.Free()
 
-	// 部分結果を有効化
 	recognizer.SetWords(1)
 
-	// 適応的VADの初期化
 	vadDetector := vad.NewAdaptiveVAD(sampleRate, *vadMode)
 
-	// オーディオキャプチャの初期化
 	capture, err := audio.NewCapture(sampleRate, framesPerBuffer)
 	if err != nil {
-		log.Fatalf("オーディオキャプチャエラー: %v", err)
+		log.Fatalf("Audio capture error: %v", err)
 	}
 	defer capture.Close()
 
-	fmt.Println("🎙️ マイクデバイス: デフォルト入力")
-	fmt.Printf("⏱️ キャリブレーション中... (%v)\n", *calibrationDuration)
+	fmt.Println("Microphone device: default input")
+	fmt.Printf("Calibrating... (%v)\n", *calibrationDuration)
 
-	// キャリブレーション期間
 	if err := calibrate(capture, vadDetector, *calibrationDuration); err != nil {
-		log.Fatalf("キャリブレーションエラー: %v", err)
+		log.Fatalf("Calibration error: %v", err)
 	}
 
 	threshold := vadDetector.GetThreshold()
-	fmt.Printf("\n周囲ノイズレベル: %.3f (閾値: %.3f)\n", vadDetector.GetNoiseLevel(), threshold)
-	fmt.Println("📡 音声認識開始\n")
+	fmt.Printf("\nAmbient noise level: %.3f (threshold: %.3f)\n", vadDetector.GetNoiseLevel(), threshold)
+	fmt.Println("Speech recognition started\n")
 
-	// シグナルハンドラ
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// 音声認識ループ
 	go recognitionLoop(capture, vadDetector, recognizer)
 
-	// 終了待機
 	<-sigChan
-	fmt.Println("\n\n👋 終了します...")
+	fmt.Println("\n\nShutting down...")
 }
 
 func calibrate(capture *audio.Capture, vadDetector *vad.AdaptiveVAD, duration time.Duration) error {
@@ -88,7 +78,7 @@ func calibrate(capture *audio.Capture, vadDetector *vad.AdaptiveVAD, duration ti
 	for time.Since(start) < duration {
 		buffer, err := capture.Read()
 		if err != nil {
-			return fmt.Errorf("キャリブレーション読み込みエラー: %w", err)
+			return fmt.Errorf("calibration read error: %w", err)
 		}
 		vadDetector.Calibrate(buffer)
 		time.Sleep(50 * time.Millisecond)
@@ -100,56 +90,49 @@ func recognitionLoop(capture *audio.Capture, vadDetector *vad.AdaptiveVAD, recog
 	for {
 		buffer, err := capture.Read()
 		if err != nil {
-			log.Printf("音声読み込みエラー: %v", err)
+			log.Printf("Audio read error: %v", err)
 			continue
 		}
 
-		// 音圧レベル計算
 		rms := vadDetector.CalculateRMS(buffer)
 
-		// VAD判定
 		isSpeech := vadDetector.IsSpeech(buffer)
 
 		if isSpeech {
-			// 音声区間 → VOSKに送信
 			result := recognizer.AcceptWaveform(buffer)
 
 			if result == 1 {
-				// 確定結果
 				finalResult := recognizer.Result()
 				if len(finalResult) > 0 {
-					fmt.Printf("\r\033[K[確定] %s\n", extractText(finalResult))
+					fmt.Printf("\r\033[K[final] %s\n", extractText(finalResult))
 				}
 			} else {
-				// 部分結果
 				partialResult := recognizer.PartialResult()
 				if len(partialResult) > 0 {
-					fmt.Printf("\r[部分] %s", extractText(partialResult))
+					fmt.Printf("\r[partial] %s", extractText(partialResult))
 				}
 			}
 
-			fmt.Printf("\r音圧: %.3f | 閾値: %.3f | 🔊 音声検出", rms, vadDetector.GetThreshold())
+			fmt.Printf("\rRMS: %.3f | threshold: %.3f | speech detected", rms, vadDetector.GetThreshold())
 		} else {
-			// 非音声区間 → 閾値更新
 			vadDetector.UpdateThreshold(buffer)
 		}
 	}
 }
 
 func extractText(jsonResult string) string {
-	       // JSONパースでtext/partialフィールドを抽出
-	       var result struct {
-		       Text    string `json:"text"`
-		       Partial string `json:"partial"`
-	       }
-	       if err := json.Unmarshal([]byte(jsonResult), &result); err != nil {
-		       return ""
-	       }
-	       if result.Text != "" {
-		       return result.Text
-	       }
-	       if result.Partial != "" {
-		       return result.Partial
-	       }
-	       return ""
+	var result struct {
+		Text    string `json:"text"`
+		Partial string `json:"partial"`
+	}
+	if err := json.Unmarshal([]byte(jsonResult), &result); err != nil {
+		return ""
+	}
+	if result.Text != "" {
+		return result.Text
+	}
+	if result.Partial != "" {
+		return result.Partial
+	}
+	return ""
 }

@@ -37,7 +37,6 @@ func (c *Capture) Read() ([]byte, error) {
 		return nil, err
 	}
 
-	// int16 → []byte変換
 	byteBuffer := make([]byte, len(c.buffer)*2)
 	for i, sample := range c.buffer {
 		byteBuffer[i*2] = byte(sample)
