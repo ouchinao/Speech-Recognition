@@ -67,8 +67,22 @@ func run() error {
 	fmt.Printf("\nAmbient noise level: %.3f (threshold: %.3f)\n", detector.NoiseLevel(), detector.Threshold())
 	fmt.Println("Speech recognition started")
 
-	if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		return err
+	// Run the recognition loop on a separate goroutine so that an incoming
+	// signal cancels ctx and returns immediately, rather than waiting for the
+	// blocking audio read to deliver the next frame.
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- service.Run(ctx)
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Signal received: fall through to shutdown; deferred Close calls run
+		// as the process unwinds.
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			return err
+		}
 	}
 
 	fmt.Println("\n\nShutting down...")
