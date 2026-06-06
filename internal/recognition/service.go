@@ -35,6 +35,9 @@ type Recognizer interface {
 	AcceptWaveform(frame []byte) (complete bool)
 	Result() string
 	PartialResult() string
+	// FinalResult flushes any buffered audio and returns its final text. It is
+	// called once when the audio stream ends.
+	FinalResult() string
 }
 
 // Printer renders recognition output to the user.

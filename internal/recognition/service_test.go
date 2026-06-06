@@ -17,12 +17,16 @@ type fakeSource struct {
 	frames [][]byte
 	i      int
 	cancel context.CancelFunc
+	endErr error // returned once frames are exhausted (defaults to a generic error)
 }
 
 func (f *fakeSource) Read() ([]byte, error) {
 	if f.i >= len(f.frames) {
 		if f.cancel != nil {
 			f.cancel()
+		}
+		if f.endErr != nil {
+			return nil, f.endErr
 		}
 		return nil, errors.New("source exhausted")
 	}
@@ -47,11 +51,13 @@ type fakeRecognizer struct {
 	complete bool
 	final    string
 	partial  string
+	flush    string
 }
 
 func (r *fakeRecognizer) AcceptWaveform(frame []byte) bool { return r.complete }
 func (r *fakeRecognizer) Result() string                   { return r.final }
 func (r *fakeRecognizer) PartialResult() string            { return r.partial }
+func (r *fakeRecognizer) FinalResult() string              { return r.flush }
 
 type fakePrinter struct {
 	finals   []string
