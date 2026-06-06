@@ -9,4 +9,4 @@ if [ ! -d "models" ]; then
     exit 1
 fi
 
-go run main.go "$@"
+go run ./cmd/speech-recognition "$@"
