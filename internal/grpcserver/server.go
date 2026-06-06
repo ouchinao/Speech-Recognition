@@ -5,8 +5,15 @@
 package grpcserver
 
 import (
+	"context"
+	"errors"
+	"io"
+
 	"speech-recognition/internal/genproto/speechv1"
 	"speech-recognition/internal/recognition"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // StreamRecognizer is a per-stream speech-to-text engine.
@@ -36,15 +43,43 @@ func New(engine Engine, defaultSampleRate int) *Server {
 	return &Server{engine: engine, defaultSampleRate: defaultSampleRate}
 }
 
-// Recognize handles a bidirectional recognition stream.
+// Recognize handles a bidirectional recognition stream: it reads the leading
+// configuration message, then streams transcripts back as audio arrives.
 func (s *Server) Recognize(stream speechv1.SpeechRecognition_RecognizeServer) error {
-	// TODO: implement (red phase). Drain the inbound stream so the client can
-	// finish sending, but produce no results yet.
-	for {
-		if _, err := stream.Recv(); err != nil {
-			return nil
-		}
+	first, err := stream.Recv()
+	if errors.Is(err, io.EOF) {
+		return nil // client hung up before sending anything
 	}
+	if err != nil {
+		return err
+	}
+
+	cfg := first.GetConfig()
+	if cfg == nil {
+		return status.Error(codes.InvalidArgument, "first message must be a recognition config")
+	}
+
+	sampleRate := int(cfg.GetSampleRateHertz())
+	if sampleRate <= 0 {
+		sampleRate = s.defaultSampleRate
+	}
+
+	rec, err := s.engine.NewRecognizer(sampleRate)
+	if err != nil {
+		return status.Errorf(codes.Internal, "create recognizer: %v", err)
+	}
+	defer func() { _ = rec.Close() }()
+
+	source := &streamSource{stream: stream}
+	printer := &streamPrinter{stream: stream}
+
+	if err := recognition.NewStreamer(source, rec, printer).Run(stream.Context()); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return status.Error(codes.Canceled, "stream cancelled")
+		}
+		return status.Errorf(codes.Internal, "recognition: %v", err)
+	}
+	return nil
 }
 
 // streamSource adapts the inbound gRPC stream to recognition.AudioSource.

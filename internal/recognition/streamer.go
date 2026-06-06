@@ -1,6 +1,11 @@
 package recognition
 
-import "context"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+)
 
 // Streamer runs request-scoped streaming recognition: it feeds every audio
 // frame from the source to the recognizer and emits partial and final
@@ -24,6 +29,28 @@ func NewStreamer(source AudioSource, recognizer Recognizer, printer Printer) *St
 // Run consumes audio until the source returns io.EOF (a graceful end, after
 // which the final result is flushed) or ctx is cancelled.
 func (s *Streamer) Run(ctx context.Context) error {
-	// TODO: implement (red phase: not yet implemented).
-	return nil
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		frame, err := s.source.Read()
+		if errors.Is(err, io.EOF) {
+			if text := s.recognizer.FinalResult(); text != "" {
+				s.printer.Final(text)
+			}
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read audio: %w", err)
+		}
+
+		if s.recognizer.AcceptWaveform(frame) {
+			if text := s.recognizer.Result(); text != "" {
+				s.printer.Final(text)
+			}
+		} else if text := s.recognizer.PartialResult(); text != "" {
+			s.printer.Partial(text)
+		}
+	}
 }
