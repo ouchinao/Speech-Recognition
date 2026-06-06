@@ -1,0 +1,41 @@
+name: Setup Go environment
+description: >-
+  Install Go plus the PortAudio and VOSK native libraries required to build the
+  cgo packages, and export the matching CGO_* environment variables.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.26"
+        cache: true
+
+    - name: Install PortAudio
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y portaudio19-dev pkg-config
+
+    - name: Install VOSK C library
+      shell: bash
+      env:
+        VOSK_VERSION: "0.3.45"
+      run: |
+        archive="vosk-linux-x86_64-${VOSK_VERSION}"
+        curl -fsSL -o /tmp/vosk.zip \
+          "https://github.com/alphacep/vosk-api/releases/download/v${VOSK_VERSION}/${archive}.zip"
+        unzip -o /tmp/vosk.zip -d /tmp
+        sudo cp "/tmp/${archive}/libvosk.so" /usr/local/lib/
+        sudo cp "/tmp/${archive}/vosk_api.h" /usr/local/include/
+        sudo ldconfig
+
+    - name: Export CGO flags
+      shell: bash
+      run: |
+        {
+          echo "CGO_CFLAGS=-I/usr/local/include"
+          echo "CGO_LDFLAGS=-L/usr/local/lib -lvosk"
+          echo "LD_LIBRARY_PATH=/usr/local/lib"
+        } >> "$GITHUB_ENV"

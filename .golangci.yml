@@ -1,0 +1,16 @@
+# golangci-lint configuration (v2 schema).
+# Runs the strong default linters (errcheck, govet, ineffassign, staticcheck,
+# unused) plus misspell. See https://golangci-lint.run/.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
