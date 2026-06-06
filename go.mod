@@ -1,6 +1,6 @@
 module speech-recognition
 
-go 1.18
+go 1.26
 
 require (
 	github.com/alphacep/vosk-api/go v0.3.50
