@@ -82,6 +82,16 @@ official references. When in doubt, run `gofmt`, `go vet`, and `golangci-lint`.
 - Adapter packages (`audio`, `recognizer`) require the PortAudio and VOSK native
   libraries; the pure packages must remain buildable and testable without them.
 
+## Pull requests
+
+- **Write every pull request title and body in English**, regardless of the
+  language used in the conversation or in commit messages. Keep titles short and
+  imperative (e.g. `fix: prompt shutdown on signal`); structure the body with a
+  brief summary and, when useful, a bullet list of the changes.
+- Reference the issue the PR closes (`Closes #N`).
+- Never force-push a branch that already has an open PR; integrate updates with
+  normal pushes or merge commits instead.
+
 ## Quick checklist before committing
 
 1. `gofmt -l .` prints nothing.
@@ -90,3 +100,4 @@ official references. When in doubt, run `gofmt`, `go vet`, and `golangci-lint`.
 4. New exported symbols have doc comments.
 5. Errors are wrapped with context; none are silently dropped.
 6. No new dependency added from `vad`/`config` to other packages.
+7. PR title and body are written in English.

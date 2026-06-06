@@ -95,6 +95,13 @@ This repo aims to match idiomatic Go as practised in large OSS codebases
 - User-facing output goes through `internal/output` (the `Printer` interface),
   not raw `fmt.Print` scattered across the use case.
 
+## Pull requests
+
+- Write pull request **titles and bodies in English**, even when the working
+  conversation is in another language. Keep titles short and imperative and
+  reference the issue with `Closes #N`.
+- Do not force-push branches that already have an open PR.
+
 ## Reference
 
 - Effective Go — https://go.dev/doc/effective_go
