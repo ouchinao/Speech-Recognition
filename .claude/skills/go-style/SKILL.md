@@ -66,12 +66,15 @@ official references. When in doubt, run `gofmt`, `go vet`, and `golangci-lint`.
   (`// Service drives ...`). Package docs go on one file as `// Package x ...`.
 - Comment *why*, not *what*; the code already says what.
 
-## Testing
+## Testing (test-driven)
 
+- **Write tests first** and follow red → green → refactor: a failing test that
+  pins the behaviour, the minimum code to pass it, then cleanup with tests green.
+  Confirm the red test fails for the intended reason before implementing.
 - Table-driven tests with `t.Run` subtests for multiple cases.
 - Use fakes that satisfy the small interfaces to test the use case without cgo;
-  keep the cgo-free packages (`config`, `vad`, `output`, `recognition`) fully
-  unit-tested.
+  keep the cgo-free packages (`config`, `vad`, `output`, `recognition`,
+  `grpcserver`) fully unit-tested. Use `bufconn` for in-memory gRPC tests.
 - Failure messages read `got X, want Y`.
 - Prefer the standard `testing` package; avoid heavyweight assertion libraries.
 

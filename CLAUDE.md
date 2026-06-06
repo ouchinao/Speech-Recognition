@@ -86,6 +86,23 @@ This repo aims to match idiomatic Go as practised in large OSS codebases
 - Use `context.Context` for cancellation; thread it through long-running loops.
 - Keep `main` thin: parse, wire, run.
 
+## Testing (TDD)
+
+Develop test-first. For every behaviour change follow the red/green/refactor
+cycle:
+
+1. **Red** — write a failing test that specifies the desired behaviour, and run
+   it to confirm it fails for the right reason.
+2. **Green** — write the minimum code to make the test pass.
+3. **Refactor** — clean up with the tests staying green.
+
+- Drive new logic from the cgo-free packages (`config`, `vad`, `output`,
+  `recognition`, `grpcserver`) so tests run without native libraries.
+- Use fakes that satisfy the small consumer interfaces to test use cases in
+  isolation; use `bufconn` for in-memory gRPC tests.
+- Commit history should show tests arriving with (or before) the code they
+  cover, not bolted on afterwards.
+
 ## Conventions specific to this repo
 
 - Audio frames are **little-endian 16-bit PCM** (`[]byte`). Use
