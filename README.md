@@ -77,3 +77,7 @@ Flags:
 go test ./...            # run the unit tests (pure packages require no cgo)
 go build ./...           # build everything (requires PortAudio + VOSK)
 ```
+
+## License
+
+Released under the [MIT License](LICENSE).
