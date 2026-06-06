@@ -18,17 +18,18 @@ func NewConsole(w io.Writer) *Console {
 	return &Console{w: w}
 }
 
-// Final prints a finalised recognition result on its own line.
+// Final prints a finalised recognition result on its own line. Write errors are
+// ignored: console output is best-effort and not worth aborting recognition for.
 func (c *Console) Final(text string) {
-	fmt.Fprintf(c.w, "\r\033[K[final] %s\n", text)
+	_, _ = fmt.Fprintf(c.w, "\r\033[K[final] %s\n", text)
 }
 
 // Partial overwrites the current line with an in-progress recognition result.
 func (c *Console) Partial(text string) {
-	fmt.Fprintf(c.w, "\r[partial] %s", text)
+	_, _ = fmt.Fprintf(c.w, "\r[partial] %s", text)
 }
 
 // Status overwrites the current line with live VAD telemetry.
 func (c *Console) Status(rms, threshold float64) {
-	fmt.Fprintf(c.w, "\rRMS: %.3f | threshold: %.3f | speech detected", rms, threshold)
+	_, _ = fmt.Fprintf(c.w, "\rRMS: %.3f | threshold: %.3f | speech detected", rms, threshold)
 }

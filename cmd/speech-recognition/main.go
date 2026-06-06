@@ -39,14 +39,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("init recognizer: %w", err)
 	}
-	defer rec.Close()
+	defer func() { _ = rec.Close() }()
 	fmt.Println("Model loaded successfully")
 
 	capture, err := audio.New(cfg.SampleRate, cfg.FramesPerBuffer)
 	if err != nil {
 		return fmt.Errorf("init audio capture: %w", err)
 	}
-	defer capture.Close()
+	defer func() { _ = capture.Close() }()
 
 	detector := vad.New(cfg.SampleRate, cfg.VADMode)
 	printer := output.NewConsole(os.Stdout)
