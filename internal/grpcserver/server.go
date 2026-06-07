@@ -12,13 +12,11 @@ import (
 
 	"speech-recognition/internal/genproto/speechv1"
 	"speech-recognition/internal/recognition"
+	"speech-recognition/internal/vad"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-// micFramesPerBuffer is the number of frames read per microphone capture call.
-const micFramesPerBuffer = 1024
 
 // StreamRecognizer is a per-stream speech-to-text engine.
 type StreamRecognizer interface {
@@ -107,10 +105,47 @@ func (s *Server) Recognize(stream speechv1.SpeechRecognition_RecognizeServer) er
 }
 
 // RecognizeMicrophone transcribes the server's local microphone and streams the
-// results to the client until the client disconnects.
+// results to the client until the client disconnects. It reuses the microphone
+// use case (recognition.Service, with VAD and calibration) and merely swaps the
+// console printer for a gRPC one.
 func (s *Server) RecognizeMicrophone(req *speechv1.RecognizeMicrophoneRequest, stream speechv1.SpeechRecognition_RecognizeMicrophoneServer) error {
-	// TODO: implement (red phase: not yet implemented).
+	if s.mic == nil {
+		return status.Error(codes.Unimplemented, "server microphone is not configured")
+	}
+	ctx := stream.Context()
+
+	micStream, err := s.mic.Open(s.defaultSampleRate)
+	if err != nil {
+		return status.Errorf(codes.Internal, "open microphone: %v", err)
+	}
+	defer func() { _ = micStream.Close() }()
+
+	rec, err := s.engine.NewRecognizer(s.defaultSampleRate)
+	if err != nil {
+		return status.Errorf(codes.Internal, "create recognizer: %v", err)
+	}
+	defer func() { _ = rec.Close() }()
+
+	detector := vad.New(s.defaultSampleRate, int(req.GetVadMode()))
+	printer := &streamPrinter{stream: stream}
+	svc := recognition.NewService(micStream, detector, rec, printer)
+
+	if err := svc.Calibrate(ctx, s.calibration); err != nil {
+		return micStatus(err, "calibration")
+	}
+	if err := svc.Run(ctx); err != nil {
+		return micStatus(err, "recognition")
+	}
 	return nil
+}
+
+// micStatus maps a use-case error to a gRPC status, treating cancellation as a
+// clean client disconnect.
+func micStatus(err error, stage string) error {
+	if errors.Is(err, context.Canceled) {
+		return status.Error(codes.Canceled, "stream cancelled")
+	}
+	return status.Errorf(codes.Internal, "%s: %v", stage, err)
 }
 
 // streamSource adapts the inbound gRPC stream to recognition.AudioSource.
@@ -133,9 +168,15 @@ func (s *streamSource) Read() ([]byte, error) {
 	}
 }
 
+// responseSender is the outbound half shared by the bidirectional and
+// server-streaming RPCs, so streamPrinter works with either.
+type responseSender interface {
+	Send(*speechv1.RecognizeResponse) error
+}
+
 // streamPrinter adapts recognition.Printer to the outbound gRPC stream.
 type streamPrinter struct {
-	stream speechv1.SpeechRecognition_RecognizeServer
+	stream responseSender
 }
 
 // Final sends a finalized transcript. Send errors are ignored: the next Recv
