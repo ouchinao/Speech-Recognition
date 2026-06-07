@@ -2,10 +2,12 @@ package grpcserver
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
 	"testing"
+	"time"
 
 	"speech-recognition/internal/genproto/speechv1"
 
@@ -39,15 +41,52 @@ func (e *fakeEngine) NewRecognizer(sampleRate int) (StreamRecognizer, error) {
 	return e.rec, nil
 }
 
+// fakeMic is an injected microphone that hands out a fixed frame indefinitely.
+type fakeMic struct {
+	frame  []byte
+	opened int
+	closed int
+}
+
+func (m *fakeMic) Open(sampleRate int) (MicStream, error) {
+	m.opened++
+	return &fakeMicStream{frame: m.frame, mic: m}, nil
+}
+
+type fakeMicStream struct {
+	frame []byte
+	mic   *fakeMic
+}
+
+func (s *fakeMicStream) Read() ([]byte, error) { return s.frame, nil }
+func (s *fakeMicStream) Close() error          { s.mic.closed++; return nil }
+
+// loudFrame returns a PCM frame whose RMS is well above the VAD threshold, so a
+// real vad detector classifies it as speech.
+func loudFrame() []byte {
+	const n = 64
+	b := make([]byte, n*2)
+	for i := 0; i < n; i++ {
+		binary.LittleEndian.PutUint16(b[i*2:], uint16(int16(16384)))
+	}
+	return b
+}
+
 // dialServer starts the Server on an in-memory listener and returns a connected
 // client plus the engine, for assertions.
 func dialServer(t *testing.T, defaultSampleRate int) (speechv1.SpeechRecognitionClient, *fakeEngine) {
 	t.Helper()
-
 	engine := &fakeEngine{rec: &fakeRecognizer{partial: "he", flush: "hello"}}
+	return newTestClient(t, engine, nil, defaultSampleRate, 0), engine
+}
+
+// newTestClient starts a Server with the given collaborators over bufconn.
+func newTestClient(t *testing.T, engine Engine, mic Microphone, defaultSampleRate int, calibration time.Duration) speechv1.SpeechRecognitionClient {
+	t.Helper()
+
 	lis := bufconn.Listen(1024 * 1024)
 	srv := grpc.NewServer()
-	speechv1.RegisterSpeechRecognitionServer(srv, New(engine, defaultSampleRate))
+	speechv1.RegisterSpeechRecognitionServer(srv, New(engine, mic, defaultSampleRate, calibration))
 	go func() { _ = srv.Serve(lis) }()
 
 	conn, err := grpc.NewClient(
@@ -62,7 +101,7 @@ func dialServer(t *testing.T, defaultSampleRate int) (speechv1.SpeechRecognition
 		_ = conn.Close()
 		srv.Stop()
 	})
-	return speechv1.NewSpeechRecognitionClient(conn), engine
+	return speechv1.NewSpeechRecognitionClient(conn)
 }
 
 func TestRecognizeStreamsPartialsAndFinal(t *testing.T) {
@@ -132,6 +171,34 @@ func TestRecognizeRejectsMissingConfig(t *testing.T) {
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("Recv error = %v (code %v), want InvalidArgument for missing config", err, status.Code(err))
 	}
+}
+
+func TestRecognizeMicrophoneStreamsTranscripts(t *testing.T) {
+	mic := &fakeMic{frame: loudFrame()}
+	engine := &fakeEngine{rec: &fakeRecognizer{partial: "he"}}
+	// calibration 0 keeps the VAD at its lenient initial threshold so the loud
+	// frames register as speech immediately.
+	client := newTestClient(t, engine, mic, 16000, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream, err := client.RecognizeMicrophone(ctx, &speechv1.RecognizeMicrophoneRequest{VadMode: 0})
+	if err != nil {
+		t.Fatalf("RecognizeMicrophone: %v", err)
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("Recv: %v", err)
+	}
+	if resp.GetText() != "he" || resp.GetIsFinal() {
+		t.Errorf("response = %+v, want partial 'he' from the server microphone", resp)
+	}
+	if mic.opened != 1 {
+		t.Errorf("mic opened %d times, want 1", mic.opened)
+	}
+
+	cancel()
 }
 
 func audioReq(b []byte) *speechv1.RecognizeRequest {

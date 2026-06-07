@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SpeechRecognition_Recognize_FullMethodName = "/speech.v1.SpeechRecognition/Recognize"
+	SpeechRecognition_Recognize_FullMethodName           = "/speech.v1.SpeechRecognition/Recognize"
+	SpeechRecognition_RecognizeMicrophone_FullMethodName = "/speech.v1.SpeechRecognition/RecognizeMicrophone"
 )
 
 // SpeechRecognitionClient is the client API for SpeechRecognition service.
@@ -30,8 +31,16 @@ const (
 type SpeechRecognitionClient interface {
 	// Recognize is a bidirectional stream: the client sends a configuration
 	// message followed by audio frames, and the server streams back partial and
-	// final transcription results as they become available.
+	// final transcription results as they become available. Use this when the
+	// audio originates on the client (e.g. a phone, browser, or edge capture
+	// service forwarding to a shared backend).
 	Recognize(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RecognizeRequest, RecognizeResponse], error)
+	// RecognizeMicrophone transcribes the SERVER's local microphone and streams
+	// results back. Use this for an edge / single-device deployment where the
+	// machine running the service is the one with the microphone. Only one such
+	// stream can be active at a time (the microphone is a single physical
+	// device).
+	RecognizeMicrophone(ctx context.Context, in *RecognizeMicrophoneRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RecognizeResponse], error)
 }
 
 type speechRecognitionClient struct {
@@ -55,6 +64,25 @@ func (c *speechRecognitionClient) Recognize(ctx context.Context, opts ...grpc.Ca
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SpeechRecognition_RecognizeClient = grpc.BidiStreamingClient[RecognizeRequest, RecognizeResponse]
 
+func (c *speechRecognitionClient) RecognizeMicrophone(ctx context.Context, in *RecognizeMicrophoneRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RecognizeResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SpeechRecognition_ServiceDesc.Streams[1], SpeechRecognition_RecognizeMicrophone_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[RecognizeMicrophoneRequest, RecognizeResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SpeechRecognition_RecognizeMicrophoneClient = grpc.ServerStreamingClient[RecognizeResponse]
+
 // SpeechRecognitionServer is the server API for SpeechRecognition service.
 // All implementations must embed UnimplementedSpeechRecognitionServer
 // for forward compatibility.
@@ -63,8 +91,16 @@ type SpeechRecognition_RecognizeClient = grpc.BidiStreamingClient[RecognizeReque
 type SpeechRecognitionServer interface {
 	// Recognize is a bidirectional stream: the client sends a configuration
 	// message followed by audio frames, and the server streams back partial and
-	// final transcription results as they become available.
+	// final transcription results as they become available. Use this when the
+	// audio originates on the client (e.g. a phone, browser, or edge capture
+	// service forwarding to a shared backend).
 	Recognize(grpc.BidiStreamingServer[RecognizeRequest, RecognizeResponse]) error
+	// RecognizeMicrophone transcribes the SERVER's local microphone and streams
+	// results back. Use this for an edge / single-device deployment where the
+	// machine running the service is the one with the microphone. Only one such
+	// stream can be active at a time (the microphone is a single physical
+	// device).
+	RecognizeMicrophone(*RecognizeMicrophoneRequest, grpc.ServerStreamingServer[RecognizeResponse]) error
 	mustEmbedUnimplementedSpeechRecognitionServer()
 }
 
@@ -77,6 +113,9 @@ type UnimplementedSpeechRecognitionServer struct{}
 
 func (UnimplementedSpeechRecognitionServer) Recognize(grpc.BidiStreamingServer[RecognizeRequest, RecognizeResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method Recognize not implemented")
+}
+func (UnimplementedSpeechRecognitionServer) RecognizeMicrophone(*RecognizeMicrophoneRequest, grpc.ServerStreamingServer[RecognizeResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method RecognizeMicrophone not implemented")
 }
 func (UnimplementedSpeechRecognitionServer) mustEmbedUnimplementedSpeechRecognitionServer() {}
 func (UnimplementedSpeechRecognitionServer) testEmbeddedByValue()                           {}
@@ -106,6 +145,17 @@ func _SpeechRecognition_Recognize_Handler(srv interface{}, stream grpc.ServerStr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SpeechRecognition_RecognizeServer = grpc.BidiStreamingServer[RecognizeRequest, RecognizeResponse]
 
+func _SpeechRecognition_RecognizeMicrophone_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(RecognizeMicrophoneRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SpeechRecognitionServer).RecognizeMicrophone(m, &grpc.GenericServerStream[RecognizeMicrophoneRequest, RecognizeResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SpeechRecognition_RecognizeMicrophoneServer = grpc.ServerStreamingServer[RecognizeResponse]
+
 // SpeechRecognition_ServiceDesc is the grpc.ServiceDesc for SpeechRecognition service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -119,6 +169,11 @@ var SpeechRecognition_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _SpeechRecognition_Recognize_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "RecognizeMicrophone",
+			Handler:       _SpeechRecognition_RecognizeMicrophone_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "speech/v1/speech.proto",

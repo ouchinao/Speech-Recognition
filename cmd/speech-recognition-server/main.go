@@ -43,7 +43,7 @@ func run() error {
 	}
 
 	grpcServer := grpc.NewServer()
-	speechv1.RegisterSpeechRecognitionServer(grpcServer, grpcserver.New(voskEngine{model: model}, *sampleRate))
+	speechv1.RegisterSpeechRecognitionServer(grpcServer, grpcserver.New(voskEngine{model: model}, nil, *sampleRate, 0))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

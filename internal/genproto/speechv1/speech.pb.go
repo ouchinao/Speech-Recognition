@@ -155,6 +155,53 @@ func (x *RecognitionConfig) GetSampleRateHertz() int32 {
 	return 0
 }
 
+// RecognizeMicrophoneRequest configures a server-microphone recognition stream.
+type RecognizeMicrophoneRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// vad_mode selects the voice-activity-detection sensitivity (0=lenient ..
+	// 3=strict). Zero selects the lenient default.
+	VadMode       int32 `protobuf:"varint,1,opt,name=vad_mode,json=vadMode,proto3" json:"vad_mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecognizeMicrophoneRequest) Reset() {
+	*x = RecognizeMicrophoneRequest{}
+	mi := &file_speech_v1_speech_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecognizeMicrophoneRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecognizeMicrophoneRequest) ProtoMessage() {}
+
+func (x *RecognizeMicrophoneRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_speech_v1_speech_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecognizeMicrophoneRequest.ProtoReflect.Descriptor instead.
+func (*RecognizeMicrophoneRequest) Descriptor() ([]byte, []int) {
+	return file_speech_v1_speech_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RecognizeMicrophoneRequest) GetVadMode() int32 {
+	if x != nil {
+		return x.VadMode
+	}
+	return 0
+}
+
 // RecognizeResponse is a single transcription result.
 type RecognizeResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -169,7 +216,7 @@ type RecognizeResponse struct {
 
 func (x *RecognizeResponse) Reset() {
 	*x = RecognizeResponse{}
-	mi := &file_speech_v1_speech_proto_msgTypes[2]
+	mi := &file_speech_v1_speech_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -181,7 +228,7 @@ func (x *RecognizeResponse) String() string {
 func (*RecognizeResponse) ProtoMessage() {}
 
 func (x *RecognizeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_speech_v1_speech_proto_msgTypes[2]
+	mi := &file_speech_v1_speech_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -194,7 +241,7 @@ func (x *RecognizeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecognizeResponse.ProtoReflect.Descriptor instead.
 func (*RecognizeResponse) Descriptor() ([]byte, []int) {
-	return file_speech_v1_speech_proto_rawDescGZIP(), []int{2}
+	return file_speech_v1_speech_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RecognizeResponse) GetText() string {
@@ -221,12 +268,15 @@ const file_speech_v1_speech_proto_rawDesc = "" +
 	"\raudio_content\x18\x02 \x01(\fH\x00R\faudioContentB\t\n" +
 	"\arequest\"?\n" +
 	"\x11RecognitionConfig\x12*\n" +
-	"\x11sample_rate_hertz\x18\x01 \x01(\x05R\x0fsampleRateHertz\"B\n" +
+	"\x11sample_rate_hertz\x18\x01 \x01(\x05R\x0fsampleRateHertz\"7\n" +
+	"\x1aRecognizeMicrophoneRequest\x12\x19\n" +
+	"\bvad_mode\x18\x01 \x01(\x05R\avadMode\"B\n" +
 	"\x11RecognizeResponse\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x19\n" +
-	"\bis_final\x18\x02 \x01(\bR\aisFinal2_\n" +
+	"\bis_final\x18\x02 \x01(\bR\aisFinal2\xbd\x01\n" +
 	"\x11SpeechRecognition\x12J\n" +
-	"\tRecognize\x12\x1b.speech.v1.RecognizeRequest\x1a\x1c.speech.v1.RecognizeResponse(\x010\x01B8Z6speech-recognition/internal/genproto/speechv1;speechv1b\x06proto3"
+	"\tRecognize\x12\x1b.speech.v1.RecognizeRequest\x1a\x1c.speech.v1.RecognizeResponse(\x010\x01\x12\\\n" +
+	"\x13RecognizeMicrophone\x12%.speech.v1.RecognizeMicrophoneRequest\x1a\x1c.speech.v1.RecognizeResponse0\x01B8Z6speech-recognition/internal/genproto/speechv1;speechv1b\x06proto3"
 
 var (
 	file_speech_v1_speech_proto_rawDescOnce sync.Once
@@ -240,18 +290,21 @@ func file_speech_v1_speech_proto_rawDescGZIP() []byte {
 	return file_speech_v1_speech_proto_rawDescData
 }
 
-var file_speech_v1_speech_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_speech_v1_speech_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_speech_v1_speech_proto_goTypes = []any{
-	(*RecognizeRequest)(nil),  // 0: speech.v1.RecognizeRequest
-	(*RecognitionConfig)(nil), // 1: speech.v1.RecognitionConfig
-	(*RecognizeResponse)(nil), // 2: speech.v1.RecognizeResponse
+	(*RecognizeRequest)(nil),           // 0: speech.v1.RecognizeRequest
+	(*RecognitionConfig)(nil),          // 1: speech.v1.RecognitionConfig
+	(*RecognizeMicrophoneRequest)(nil), // 2: speech.v1.RecognizeMicrophoneRequest
+	(*RecognizeResponse)(nil),          // 3: speech.v1.RecognizeResponse
 }
 var file_speech_v1_speech_proto_depIdxs = []int32{
 	1, // 0: speech.v1.RecognizeRequest.config:type_name -> speech.v1.RecognitionConfig
 	0, // 1: speech.v1.SpeechRecognition.Recognize:input_type -> speech.v1.RecognizeRequest
-	2, // 2: speech.v1.SpeechRecognition.Recognize:output_type -> speech.v1.RecognizeResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
+	2, // 2: speech.v1.SpeechRecognition.RecognizeMicrophone:input_type -> speech.v1.RecognizeMicrophoneRequest
+	3, // 3: speech.v1.SpeechRecognition.Recognize:output_type -> speech.v1.RecognizeResponse
+	3, // 4: speech.v1.SpeechRecognition.RecognizeMicrophone:output_type -> speech.v1.RecognizeResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
 	1, // [1:1] is the sub-list for extension extendee
 	0, // [0:1] is the sub-list for field type_name
@@ -272,7 +325,7 @@ func file_speech_v1_speech_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_speech_v1_speech_proto_rawDesc), len(file_speech_v1_speech_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"speech-recognition/internal/genproto/speechv1"
 	"speech-recognition/internal/recognition"
@@ -15,6 +16,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// micFramesPerBuffer is the number of frames read per microphone capture call.
+const micFramesPerBuffer = 1024
 
 // StreamRecognizer is a per-stream speech-to-text engine.
 type StreamRecognizer interface {
@@ -29,18 +33,38 @@ type Engine interface {
 	NewRecognizer(sampleRate int) (StreamRecognizer, error)
 }
 
+// Microphone opens the server's local microphone as an audio source. It is
+// injected from the command so this package stays free of cgo.
+type Microphone interface {
+	Open(sampleRate int) (MicStream, error)
+}
+
+// MicStream is an open microphone: an audio source that can be closed.
+type MicStream interface {
+	recognition.AudioSource
+	Close() error
+}
+
 // Server implements the SpeechRecognition gRPC service.
 type Server struct {
 	speechv1.UnimplementedSpeechRecognitionServer
 
 	engine            Engine
+	mic               Microphone
 	defaultSampleRate int
+	calibration       time.Duration
 }
 
 // New returns a Server backed by engine. defaultSampleRate is used when a
-// client does not specify one in its configuration message.
-func New(engine Engine, defaultSampleRate int) *Server {
-	return &Server{engine: engine, defaultSampleRate: defaultSampleRate}
+// client omits one; mic (which may be nil to disable RecognizeMicrophone)
+// supplies the server's microphone, calibrated for the given duration.
+func New(engine Engine, mic Microphone, defaultSampleRate int, calibration time.Duration) *Server {
+	return &Server{
+		engine:            engine,
+		mic:               mic,
+		defaultSampleRate: defaultSampleRate,
+		calibration:       calibration,
+	}
 }
 
 // Recognize handles a bidirectional recognition stream: it reads the leading
@@ -79,6 +103,13 @@ func (s *Server) Recognize(stream speechv1.SpeechRecognition_RecognizeServer) er
 		}
 		return status.Errorf(codes.Internal, "recognition: %v", err)
 	}
+	return nil
+}
+
+// RecognizeMicrophone transcribes the server's local microphone and streams the
+// results to the client until the client disconnects.
+func (s *Server) RecognizeMicrophone(req *speechv1.RecognizeMicrophoneRequest, stream speechv1.SpeechRecognition_RecognizeMicrophoneServer) error {
+	// TODO: implement (red phase: not yet implemented).
 	return nil
 }
 
