@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -212,4 +213,83 @@ func mustSend(t *testing.T, stream grpc.BidiStreamingClient[speechv1.RecognizeRe
 	if err := stream.Send(req); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
+}
+
+func TestRecognizeStatus(t *testing.T) {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want codes.Code
+	}{
+		{"nil error", context.Background(), nil, codes.OK},
+		{"cancelled context", cancelled, fmt.Errorf("read audio: %w", status.Error(codes.Canceled, "x")), codes.Canceled},
+		{"too many non-audio", context.Background(), fmt.Errorf("read audio: %w", errTooManyNonAudio), codes.InvalidArgument},
+		{"context.Canceled sentinel", context.Background(), fmt.Errorf("read audio: %w", context.Canceled), codes.Canceled},
+		{"generic error", context.Background(), errors.New("boom"), codes.Internal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := status.Code(recognizeStatus(tt.ctx, tt.err)); got != tt.want {
+				t.Errorf("recognizeStatus code = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRecognizeRejectsTooManyNonAudio(t *testing.T) {
+	old := maxConsecutiveNonAudio
+	maxConsecutiveNonAudio = 3
+	defer func() { maxConsecutiveNonAudio = old }()
+
+	client, _ := dialServer(t, 16000)
+	stream, err := client.Recognize(context.Background())
+	if err != nil {
+		t.Fatalf("Recognize: %v", err)
+	}
+
+	cfg := &speechv1.RecognizeRequest{
+		Request: &speechv1.RecognizeRequest_Config{Config: &speechv1.RecognitionConfig{}},
+	}
+	mustSend(t, stream, cfg) // handshake config
+	for i := 0; i < maxConsecutiveNonAudio+2; i++ {
+		_ = stream.Send(cfg) // a flood of config-only (non-audio) messages
+	}
+	_ = stream.CloseSend()
+
+	if _, err := stream.Recv(); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("Recv code = %v, want InvalidArgument", status.Code(err))
+	}
+}
+
+func TestRecognizeMicrophoneRejectsConcurrent(t *testing.T) {
+	mic := &fakeMic{frame: loudFrame()}
+	engine := &fakeEngine{rec: &fakeRecognizer{partial: "he"}}
+	client := newTestClient(t, engine, mic, 16000, 0)
+
+	ctxA, cancelA := context.WithCancel(context.Background())
+	defer cancelA()
+	streamA, err := client.RecognizeMicrophone(ctxA, &speechv1.RecognizeMicrophoneRequest{})
+	if err != nil {
+		t.Fatalf("stream A: %v", err)
+	}
+	// Reading one response guarantees the server holds the microphone lock.
+	if _, err := streamA.Recv(); err != nil {
+		t.Fatalf("stream A Recv: %v", err)
+	}
+
+	streamB, err := client.RecognizeMicrophone(context.Background(), &speechv1.RecognizeMicrophoneRequest{})
+	if err != nil {
+		t.Fatalf("stream B: %v", err)
+	}
+	if _, err := streamB.Recv(); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("stream B code = %v, want FailedPrecondition", status.Code(err))
+	}
+	if mic.opened != 1 {
+		t.Errorf("mic opened %d times, want 1 (second stream rejected before opening)", mic.opened)
+	}
+	cancelA()
 }
