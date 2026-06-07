@@ -1,6 +1,9 @@
 // Package recognizer provides an infrastructure adapter around the VOSK speech
 // recognition engine. It hides the cgo-based VOSK API behind a small, testable
 // surface and returns plain text rather than raw JSON.
+//
+// A Model is the expensive, read-only resource; load it once and create a
+// lightweight Recognizer per audio stream from it.
 package recognizer
 
 import (
@@ -10,28 +13,42 @@ import (
 	vosk "github.com/alphacep/vosk-api/go"
 )
 
-// Recognizer wraps a VOSK model and recognizer and converts PCM audio to text.
-type Recognizer struct {
-	model      *vosk.VoskModel
-	recognizer *vosk.VoskRecognizer
+// Model is a loaded VOSK acoustic model. It is safe to create many recognizers
+// from a single model, so load it once and share it across streams.
+type Model struct {
+	model *vosk.VoskModel
 }
 
-// New loads the VOSK model at modelPath and creates a recognizer configured for
-// the given sample rate. The returned Recognizer must be closed with Close.
-func New(modelPath string, sampleRate int) (*Recognizer, error) {
-	model, err := vosk.NewModel(modelPath)
+// LoadModel loads the VOSK model at path. The returned Model must be released
+// with Close once all recognizers created from it are done.
+func LoadModel(path string) (*Model, error) {
+	m, err := vosk.NewModel(path)
 	if err != nil {
-		return nil, fmt.Errorf("load model %q: %w", modelPath, err)
+		return nil, fmt.Errorf("load model %q: %w", path, err)
 	}
+	return &Model{model: m}, nil
+}
 
-	rec, err := vosk.NewRecognizer(model, float64(sampleRate))
+// NewRecognizer creates a recognizer for the given sample rate from the model.
+// The returned Recognizer must be closed with Close.
+func (m *Model) NewRecognizer(sampleRate int) (*Recognizer, error) {
+	rec, err := vosk.NewRecognizer(m.model, float64(sampleRate))
 	if err != nil {
-		model.Free()
 		return nil, fmt.Errorf("create recognizer: %w", err)
 	}
 	rec.SetWords(1)
+	return &Recognizer{recognizer: rec}, nil
+}
 
-	return &Recognizer{model: model, recognizer: rec}, nil
+// Close releases the model. Recognizers created from it must be closed first.
+func (m *Model) Close() error {
+	m.model.Free()
+	return nil
+}
+
+// Recognizer wraps a VOSK recognizer and converts PCM audio to text.
+type Recognizer struct {
+	recognizer *vosk.VoskRecognizer
 }
 
 // AcceptWaveform feeds a PCM frame to the engine and reports whether the
@@ -50,11 +67,16 @@ func (r *Recognizer) PartialResult() string {
 	return extractText(r.recognizer.PartialResult())
 }
 
-// Close releases the underlying VOSK resources. It always succeeds and returns
-// nil; the error return exists to satisfy the io.Closer convention.
+// FinalResult flushes the recognizer and returns the final text for any audio
+// buffered since the last final result. Call it once when the audio ends.
+func (r *Recognizer) FinalResult() string {
+	return extractText(r.recognizer.FinalResult())
+}
+
+// Close releases the underlying VOSK recognizer (but not the model it came
+// from). It always succeeds; the error return satisfies the io.Closer convention.
 func (r *Recognizer) Close() error {
 	r.recognizer.Free()
-	r.model.Free()
 	return nil
 }
 

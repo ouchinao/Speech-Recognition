@@ -3,9 +3,16 @@ package recognition
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 )
+
+// TestMain disables the read-error backoff so error-path tests run instantly.
+func TestMain(m *testing.M) {
+	readErrorBackoff = 0
+	os.Exit(m.Run())
+}
 
 // Frame markers used by the fakes to decide speech vs. silence.
 var (
@@ -13,16 +20,50 @@ var (
 	silenceFrame = []byte{0}
 )
 
+type readResult struct {
+	frame []byte
+	err   error
+}
+
+// scriptedSource returns a fixed sequence of (frame, error) results, then
+// cancels and reports exhaustion.
+type scriptedSource struct {
+	reads  []readResult
+	i      int
+	cancel context.CancelFunc
+}
+
+func (s *scriptedSource) Read() ([]byte, error) {
+	if s.i >= len(s.reads) {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		return nil, errors.New("exhausted")
+	}
+	r := s.reads[s.i]
+	s.i++
+	return r.frame, r.err
+}
+
+// errorSource always fails to read.
+type errorSource struct{}
+
+func (errorSource) Read() ([]byte, error) { return nil, errors.New("permanent read failure") }
+
 type fakeSource struct {
 	frames [][]byte
 	i      int
 	cancel context.CancelFunc
+	endErr error // returned once frames are exhausted (defaults to a generic error)
 }
 
 func (f *fakeSource) Read() ([]byte, error) {
 	if f.i >= len(f.frames) {
 		if f.cancel != nil {
 			f.cancel()
+		}
+		if f.endErr != nil {
+			return nil, f.endErr
 		}
 		return nil, errors.New("source exhausted")
 	}
@@ -47,11 +88,13 @@ type fakeRecognizer struct {
 	complete bool
 	final    string
 	partial  string
+	flush    string
 }
 
 func (r *fakeRecognizer) AcceptWaveform(frame []byte) bool { return r.complete }
 func (r *fakeRecognizer) Result() string                   { return r.final }
 func (r *fakeRecognizer) PartialResult() string            { return r.partial }
+func (r *fakeRecognizer) FinalResult() string              { return r.flush }
 
 type fakePrinter struct {
 	finals   []string
@@ -131,5 +174,35 @@ func TestCalibrateSamplesNoise(t *testing.T) {
 	}
 	if detector.calibrateCount == 0 {
 		t.Error("calibrateCount = 0, want at least one sample")
+	}
+}
+
+func TestRunStopsAfterRepeatedReadErrors(t *testing.T) {
+	old := maxConsecutiveReadErrors
+	maxConsecutiveReadErrors = 3
+	defer func() { maxConsecutiveReadErrors = old }()
+
+	err := NewService(errorSource{}, &fakeDetector{}, &fakeRecognizer{}, &fakePrinter{}).Run(context.Background())
+	if err == nil {
+		t.Fatal("Run = nil, want an error after repeated consecutive read failures")
+	}
+}
+
+func TestRunContinuesAfterTransientReadError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	src := &scriptedSource{
+		reads: []readResult{
+			{frame: nil, err: errors.New("transient")}, // logged + skipped, not fatal
+			{frame: speechFrame, err: nil},             // then a good frame is processed
+		},
+		cancel: cancel,
+	}
+	rec := &fakeRecognizer{complete: true, final: "ok"}
+	printer := &fakePrinter{}
+
+	_ = NewService(src, &fakeDetector{}, rec, printer).Run(ctx)
+
+	if len(printer.finals) != 1 || printer.finals[0] != "ok" {
+		t.Errorf("finals = %v, want [ok] (frame processed after a transient read error)", printer.finals)
 	}
 }

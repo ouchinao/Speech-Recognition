@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package speech.v1;
+
+option go_package = "speech-recognition/internal/genproto/speechv1;speechv1";
+
+// SpeechRecognition transcribes streamed PCM audio into text in real time.
+service SpeechRecognition {
+  // Recognize is a bidirectional stream: the client sends a configuration
+  // message followed by audio frames, and the server streams back partial and
+  // final transcription results as they become available. Use this when the
+  // audio originates on the client (e.g. a phone, browser, or edge capture
+  // service forwarding to a shared backend).
+  rpc Recognize(stream RecognizeRequest) returns (stream RecognizeResponse);
+
+  // RecognizeMicrophone transcribes the SERVER's local microphone and streams
+  // results back. Use this for an edge / single-device deployment where the
+  // machine running the service is the one with the microphone. Only one such
+  // stream can be active at a time (the microphone is a single physical
+  // device).
+  rpc RecognizeMicrophone(RecognizeMicrophoneRequest) returns (stream RecognizeResponse);
+}
+
+// RecognizeRequest carries either the initial configuration or a chunk of audio.
+// The first message on the stream MUST be a config; every subsequent message
+// MUST be audio_content.
+message RecognizeRequest {
+  oneof request {
+    RecognitionConfig config = 1;
+    // audio_content is little-endian 16-bit PCM, single channel, at the
+    // sample rate declared in the config.
+    bytes audio_content = 2;
+  }
+}
+
+// RecognitionConfig declares the format of the audio that follows.
+message RecognitionConfig {
+  // sample_rate_hertz is the sampling rate of audio_content, e.g. 16000.
+  // When zero, the server's default sample rate is used.
+  int32 sample_rate_hertz = 1;
+}
+
+// RecognizeMicrophoneRequest configures a server-microphone recognition stream.
+message RecognizeMicrophoneRequest {
+  // vad_mode selects the voice-activity-detection sensitivity (0=lenient ..
+  // 3=strict). Zero selects the lenient default.
+  int32 vad_mode = 1;
+}
+
+// RecognizeResponse is a single transcription result.
+message RecognizeResponse {
+  // text is the recognized transcript for the current utterance.
+  string text = 1;
+  // is_final reports whether text is a finalized result (true) or an
+  // in-progress partial hypothesis (false).
+  bool is_final = 2;
+}

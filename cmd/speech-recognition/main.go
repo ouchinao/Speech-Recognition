@@ -35,7 +35,13 @@ func run() error {
 	fmt.Println("VOSK real-time speech recognition starting...")
 	fmt.Printf("Loading model: %s\n", cfg.ModelPath)
 
-	rec, err := recognizer.New(cfg.ModelPath, cfg.SampleRate)
+	model, err := recognizer.LoadModel(cfg.ModelPath)
+	if err != nil {
+		return fmt.Errorf("load model: %w", err)
+	}
+	defer func() { _ = model.Close() }()
+
+	rec, err := model.NewRecognizer(cfg.SampleRate)
 	if err != nil {
 		return fmt.Errorf("init recognizer: %w", err)
 	}
