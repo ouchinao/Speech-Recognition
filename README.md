@@ -78,8 +78,7 @@ Flags:
 ## gRPC streaming server
 
 Besides the local microphone CLI, the engine is exposed as a streaming gRPC
-service so it can be used as a microservice. The client streams little-endian
-16-bit PCM audio and receives partial and final transcripts in real time.
+service so it can be used as a microservice.
 
 ```bash
 go run ./cmd/speech-recognition-server   # listens on :50051 by default
@@ -92,13 +91,24 @@ Flags:
 | `-addr` | `:50051` | gRPC listen address |
 | `-models` | `./models/vosk-model-ja-0.22` | Path to the VOSK model |
 | `-sample-rate` | `16000` | Default sample rate when the client omits one |
+| `-calibration-time` | `5s` | Calibration duration for `RecognizeMicrophone` |
 
-The service is defined in [`proto/speech/v1/speech.proto`](proto/speech/v1/speech.proto):
-send a `RecognitionConfig` as the first message, then a stream of
-`audio_content` chunks; the server streams back `RecognizeResponse` messages
-(`text` plus `is_final`). The use case (`internal/recognition.Streamer`) and the
-VOSK adapter are shared with the CLI — only the audio source and the result sink
-differ (gRPC stream instead of microphone and console).
+The service ([`proto/speech/v1/speech.proto`](proto/speech/v1/speech.proto))
+offers two RPCs, matching the two deployment topologies:
+
+- **`Recognize`** (bidirectional) — the **client** streams audio: a
+  `RecognitionConfig` first, then `audio_content` chunks; the server streams
+  back `RecognizeResponse` (`text` + `is_final`). Use this when the audio
+  originates elsewhere (phone, browser, or an edge capture service forwarding to
+  a shared cloud backend). Driven by `internal/recognition.Streamer`.
+- **`RecognizeMicrophone`** (server-streaming) — the **server** transcribes its
+  own local microphone and streams results back. Use this for an edge /
+  single-device deployment where the box running the service has the mic. Only
+  one such stream is active at a time (one physical device). Driven by the same
+  `internal/recognition.Service` as the CLI (VAD + calibration), with a gRPC
+  printer instead of the console.
+
+Both share the VOSK adapter; only the audio source and result sink differ.
 
 ### Regenerating the gRPC stubs
 

@@ -11,13 +11,18 @@ import (
 	"net"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"speech-recognition/internal/audio"
 	"speech-recognition/internal/genproto/speechv1"
 	"speech-recognition/internal/grpcserver"
 	"speech-recognition/internal/recognizer"
 
 	"google.golang.org/grpc"
 )
+
+// micFramesPerBuffer is the number of frames read per microphone capture call.
+const micFramesPerBuffer = 1024
 
 func main() {
 	if err := run(); err != nil {
@@ -29,6 +34,7 @@ func run() error {
 	addr := flag.String("addr", ":50051", "gRPC listen address")
 	modelPath := flag.String("models", "./models/vosk-model-ja-0.22", "Path to VOSK model")
 	sampleRate := flag.Int("sample-rate", 16000, "Default sample rate (Hz) used when a client omits one")
+	calibration := flag.Duration("calibration-time", 5*time.Second, "Ambient-noise calibration duration for RecognizeMicrophone")
 	flag.Parse()
 
 	model, err := recognizer.LoadModel(*modelPath)
@@ -43,7 +49,8 @@ func run() error {
 	}
 
 	grpcServer := grpc.NewServer()
-	speechv1.RegisterSpeechRecognitionServer(grpcServer, grpcserver.New(voskEngine{model: model}, nil, *sampleRate, 0))
+	server := grpcserver.New(voskEngine{model: model}, portAudioMic{framesPerBuffer: micFramesPerBuffer}, *sampleRate, *calibration)
+	speechv1.RegisterSpeechRecognitionServer(grpcServer, server)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -74,4 +81,18 @@ func (e voskEngine) NewRecognizer(sampleRate int) (grpcserver.StreamRecognizer, 
 		return nil, err
 	}
 	return rec, nil
+}
+
+// portAudioMic adapts the PortAudio capture to grpcserver.Microphone, opening
+// the default input device for RecognizeMicrophone.
+type portAudioMic struct {
+	framesPerBuffer int
+}
+
+func (m portAudioMic) Open(sampleRate int) (grpcserver.MicStream, error) {
+	capture, err := audio.New(sampleRate, m.framesPerBuffer)
+	if err != nil {
+		return nil, err
+	}
+	return capture, nil
 }
