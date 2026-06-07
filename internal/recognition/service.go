@@ -15,6 +15,18 @@ import (
 // calibration spans real time rather than spinning as fast as the device.
 const calibrationPollInterval = 50 * time.Millisecond
 
+// Read-error handling for the recognition loop. They are vars so tests can
+// shorten them.
+var (
+	// readErrorBackoff is how long Run pauses after a failed read, to avoid a
+	// hot loop when a device fails repeatedly.
+	readErrorBackoff = 100 * time.Millisecond
+	// maxConsecutiveReadErrors is how many back-to-back read failures Run
+	// tolerates before giving up and returning the error. A successful read
+	// resets the counter, so transient glitches are absorbed.
+	maxConsecutiveReadErrors = 50
+)
+
 // AudioSource yields raw little-endian 16-bit PCM frames from an input device.
 type AudioSource interface {
 	Read() ([]byte, error)
@@ -86,8 +98,11 @@ func (s *Service) Calibrate(ctx context.Context, duration time.Duration) error {
 }
 
 // Run executes the recognition loop until ctx is cancelled, at which point it
-// returns ctx.Err(). Transient read errors are logged and skipped.
+// returns ctx.Err(). Transient read errors are logged, backed off and skipped;
+// once they exceed maxConsecutiveReadErrors in a row, Run returns the error
+// rather than spinning forever on a broken device.
 func (s *Service) Run(ctx context.Context) error {
+	consecutiveErrors := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -95,9 +110,15 @@ func (s *Service) Run(ctx context.Context) error {
 
 		frame, err := s.source.Read()
 		if err != nil {
+			consecutiveErrors++
+			if consecutiveErrors >= maxConsecutiveReadErrors {
+				return fmt.Errorf("audio read failed %d times in a row: %w", consecutiveErrors, err)
+			}
 			log.Printf("audio read error: %v", err)
+			time.Sleep(readErrorBackoff)
 			continue
 		}
+		consecutiveErrors = 0
 
 		if !s.detector.IsSpeech(frame) {
 			s.detector.UpdateThreshold(frame)

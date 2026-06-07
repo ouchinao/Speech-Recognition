@@ -7,7 +7,9 @@ package grpcserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"speech-recognition/internal/genproto/speechv1"
@@ -17,6 +19,15 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// errTooManyNonAudio is returned by streamSource when a client floods the
+// stream with non-audio messages instead of sending audio.
+var errTooManyNonAudio = errors.New("too many consecutive non-audio messages")
+
+// maxConsecutiveNonAudio bounds how many non-audio messages streamSource will
+// skip before failing, so an idle/abusive client cannot pin a recognizer
+// forever. It is a var so tests can lower it.
+var maxConsecutiveNonAudio = 1024
 
 // StreamRecognizer is a per-stream speech-to-text engine.
 type StreamRecognizer interface {
@@ -51,6 +62,10 @@ type Server struct {
 	mic               Microphone
 	defaultSampleRate int
 	calibration       time.Duration
+
+	// micLock serializes access to the single physical microphone so only one
+	// RecognizeMicrophone stream runs at a time.
+	micLock sync.Mutex
 }
 
 // New returns a Server backed by engine. defaultSampleRate is used when a
@@ -95,13 +110,26 @@ func (s *Server) Recognize(stream speechv1.SpeechRecognition_RecognizeServer) er
 	source := &streamSource{stream: stream}
 	printer := &streamPrinter{stream: stream}
 
-	if err := recognition.NewStreamer(source, rec, printer).Run(stream.Context()); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return status.Error(codes.Canceled, "stream cancelled")
-		}
+	runErr := recognition.NewStreamer(source, rec, printer).Run(stream.Context())
+	return recognizeStatus(stream.Context(), runErr)
+}
+
+// recognizeStatus maps the Streamer's result to a gRPC status. A cancelled
+// stream context (the client disconnected) is reported as Canceled rather than
+// Internal, and a non-audio flood as InvalidArgument.
+func recognizeStatus(ctx context.Context, err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case ctx.Err() != nil:
+		return status.FromContextError(ctx.Err()).Err()
+	case errors.Is(err, errTooManyNonAudio):
+		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, "stream cancelled")
+	default:
 		return status.Errorf(codes.Internal, "recognition: %v", err)
 	}
-	return nil
 }
 
 // RecognizeMicrophone transcribes the server's local microphone and streams the
@@ -112,6 +140,12 @@ func (s *Server) RecognizeMicrophone(req *speechv1.RecognizeMicrophoneRequest, s
 	if s.mic == nil {
 		return status.Error(codes.Unimplemented, "server microphone is not configured")
 	}
+	// The microphone is a single physical device; reject overlapping streams.
+	if !s.micLock.TryLock() {
+		return status.Error(codes.FailedPrecondition, "microphone is already in use by another stream")
+	}
+	defer s.micLock.Unlock()
+
 	ctx := stream.Context()
 
 	micStream, err := s.mic.Open(s.defaultSampleRate)
@@ -150,11 +184,13 @@ func micStatus(err error, stage string) error {
 
 // streamSource adapts the inbound gRPC stream to recognition.AudioSource.
 type streamSource struct {
-	stream speechv1.SpeechRecognition_RecognizeServer
+	stream   speechv1.SpeechRecognition_RecognizeServer
+	nonAudio int
 }
 
-// Read returns the next audio frame, ignoring any further config messages, and
-// returns io.EOF when the client closes its half of the stream.
+// Read returns the next audio frame and returns io.EOF when the client closes
+// its half of the stream. Non-audio messages (a stray config) are skipped, but
+// only up to maxConsecutiveNonAudio in a row to bound abusive/idle clients.
 func (s *streamSource) Read() ([]byte, error) {
 	for {
 		msg, err := s.stream.Recv()
@@ -162,7 +198,12 @@ func (s *streamSource) Read() ([]byte, error) {
 			return nil, err
 		}
 		if audio, ok := msg.GetRequest().(*speechv1.RecognizeRequest_AudioContent); ok {
+			s.nonAudio = 0
 			return audio.AudioContent, nil
+		}
+		s.nonAudio++
+		if s.nonAudio > maxConsecutiveNonAudio {
+			return nil, fmt.Errorf("%w (%d)", errTooManyNonAudio, s.nonAudio)
 		}
 		// A config (or empty) message mid-stream is ignored; read the next one.
 	}
