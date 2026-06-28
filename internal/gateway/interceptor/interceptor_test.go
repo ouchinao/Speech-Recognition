@@ -82,6 +82,25 @@ func TestRecoveryStream(t *testing.T) {
 	}
 }
 
+func TestConcurrencyLimitStreamDisabled(t *testing.T) {
+	// 0 or negative must disable the limit (no panic, no rejection), not crash
+	// the server or reject every stream.
+	for _, limit := range []int{0, -1} {
+		intc := ConcurrencyLimitStream(limit) // must not panic for -1
+		called := false
+		err := intc(nil, fakeStream{ctx: context.Background()}, testInfo, func(any, grpc.ServerStream) error {
+			called = true
+			return nil
+		})
+		if err != nil {
+			t.Errorf("limit=%d: err = %v, want nil (limit disabled)", limit, err)
+		}
+		if !called {
+			t.Errorf("limit=%d: handler not called", limit)
+		}
+	}
+}
+
 func TestConcurrencyLimitStream(t *testing.T) {
 	intc := ConcurrencyLimitStream(1)
 
