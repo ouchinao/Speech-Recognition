@@ -44,7 +44,7 @@ func run() error {
 	tlsCert := flag.String("tls-cert", "", "Path to the TLS certificate (PEM); without -tls-key the server runs without TLS")
 	tlsKey := flag.String("tls-key", "", "Path to the TLS private key (PEM)")
 	authToken := flag.String("auth-token", os.Getenv("STT_AUTH_TOKEN"), "Bearer token clients must present (default $STT_AUTH_TOKEN); empty disables auth")
-	maxStreams := flag.Int("max-streams", 64, "Maximum number of concurrent recognition streams")
+	maxStreams := flag.Int("max-streams", 64, "Maximum number of concurrent recognition streams (0 or less disables the limit)")
 	maxConnIdle := flag.Duration("max-conn-idle", 5*time.Minute, "Close a connection after it has been idle this long")
 	flag.Parse()
 
