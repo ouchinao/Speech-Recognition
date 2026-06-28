@@ -10,7 +10,8 @@ test:
 
 # Run only the cgo-free packages (no native libraries required).
 test-pure:
-	go test ./internal/config/... ./internal/vad/... ./internal/output/... ./internal/recognition/...
+	go test ./internal/domain/... ./internal/usecase/... ./internal/gateway/grpcserver/... \
+		./internal/gateway/output/... ./internal/infrastructure/config/...
 
 lint:
 	golangci-lint run

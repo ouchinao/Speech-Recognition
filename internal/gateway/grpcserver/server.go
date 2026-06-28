@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"speech-recognition/internal/genproto/speechv1"
-	"speech-recognition/internal/recognition"
-	"speech-recognition/internal/vad"
+	"speech-recognition/internal/domain/vad"
+	"speech-recognition/internal/gateway/genproto/speechv1"
+	"speech-recognition/internal/usecase/recognition"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

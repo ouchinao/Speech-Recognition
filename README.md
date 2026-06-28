@@ -7,40 +7,44 @@ incrementally.
 
 ## Architecture
 
-The project follows a clean-architecture-inspired layout: dependencies point
-inward toward the use case, and the entrypoint wires concrete drivers into the
-interfaces the use case defines.
+The project follows **Clean Architecture**: the four layer directories are named
+after the layers, and dependencies point inward (outer may import inner, never
+the reverse).
 
 ```
 .
-├── proto/speech/v1/             # gRPC service definition (.proto)
-├── cmd/
-│   ├── speech-recognition/       # CLI: microphone -> recognition -> console
-│   └── speech-recognition-server/# gRPC streaming server (composition root)
+├── proto/speech/v1/                       # gRPC service definition (.proto)
+├── cmd/                                   # frameworks & drivers / main (wiring only)
+│   ├── speech-recognition/                #   CLI: microphone -> recognition -> console
+│   └── speech-recognition-server/         #   gRPC streaming server
 └── internal/
-    ├── config/               # runtime configuration + flag parsing
-    ├── vad/                  # domain: adaptive voice activity detection (pure, no I/O)
-    ├── recognition/          # use cases: mic loop (Service) + streaming (Streamer)
-    ├── audio/                # adapter: microphone capture via PortAudio (cgo)
-    ├── recognizer/           # adapter: speech-to-text via VOSK (cgo)
-    ├── output/               # adapter: console presentation
-    ├── grpcserver/           # adapter: gRPC transport for the streaming use case
-    └── genproto/             # generated protobuf / gRPC code
+    ├── domain/
+    │   └── vad/                           # entities/domain logic: adaptive VAD (pure, no I/O)
+    ├── usecase/
+    │   └── recognition/                   # application: Service (mic) + Streamer (stream) + ports
+    ├── gateway/
+    │   ├── grpcserver/                    # interface adapter: gRPC controller
+    │   ├── output/                        # interface adapter: console presenter
+    │   └── genproto/speechv1/             # generated protobuf / gRPC transport types
+    └── infrastructure/
+        ├── audio/                         # driver: microphone capture via PortAudio (cgo)
+        ├── recognizer/                    # driver: speech-to-text via VOSK (cgo)
+        └── config/                        # flag/env parsing
 ```
 
-Responsibilities:
+Responsibilities and the dependency rule:
 
-| Layer | Package | Depends on |
+| Layer | Packages | May import |
 | --- | --- | --- |
-| Entrypoints | `cmd/speech-recognition`, `cmd/speech-recognition-server` | everything (composition roots) |
-| Use case | `internal/recognition` | its own interfaces only |
-| Domain | `internal/vad` | standard library only |
-| Adapters | `internal/audio`, `internal/recognizer`, `internal/output`, `internal/grpcserver` | external libraries |
-| Config | `internal/config` | standard library only |
+| `domain` | `vad` | standard library only |
+| `usecase` | `recognition` | standard library only (it owns its ports) |
+| `gateway` | `grpcserver`, `output`, `genproto` | `usecase`, `domain` |
+| `infrastructure` | `audio`, `recognizer`, `config` | external libraries |
+| `cmd` | the two binaries | everything (composition root) |
 
-`internal/recognition` declares the `AudioSource`, `VoiceDetector`, `Recognizer`
-and `Printer` interfaces it consumes, so the concrete PortAudio/VOSK/console
-drivers are injected at start-up and can be replaced with fakes in tests.
+`usecase/recognition` declares the `AudioSource`, `VoiceDetector`, `Recognizer`
+and `Printer` ports it consumes, so the concrete PortAudio/VOSK/console drivers
+are injected at start-up and can be replaced with fakes in tests.
 
 ## Requirements
 
@@ -100,19 +104,19 @@ offers two RPCs, matching the two deployment topologies:
   `RecognitionConfig` first, then `audio_content` chunks; the server streams
   back `RecognizeResponse` (`text` + `is_final`). Use this when the audio
   originates elsewhere (phone, browser, or an edge capture service forwarding to
-  a shared cloud backend). Driven by `internal/recognition.Streamer`.
+  a shared cloud backend). Driven by `usecase/recognition.Streamer`.
 - **`RecognizeMicrophone`** (server-streaming) — the **server** transcribes its
   own local microphone and streams results back. Use this for an edge /
   single-device deployment where the box running the service has the mic. Only
   one such stream is active at a time (one physical device). Driven by the same
-  `internal/recognition.Service` as the CLI (VAD + calibration), with a gRPC
+  `usecase/recognition.Service` as the CLI (VAD + calibration), with a gRPC
   printer instead of the console.
 
 Both share the VOSK adapter; only the audio source and result sink differ.
 
 ### Regenerating the gRPC stubs
 
-The generated code under `internal/genproto/` is committed. Regenerate it after
+The generated code under `internal/gateway/genproto/` is committed. Regenerate it after
 editing the `.proto` with `protoc` plus `protoc-gen-go` / `protoc-gen-go-grpc`:
 
 ```bash

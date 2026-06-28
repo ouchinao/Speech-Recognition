@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package speech.v1;
 
-option go_package = "speech-recognition/internal/genproto/speechv1;speechv1";
+option go_package = "speech-recognition/internal/gateway/genproto/speechv1;speechv1";
 
 // SpeechRecognition transcribes streamed PCM audio into text in real time.
 service SpeechRecognition {
