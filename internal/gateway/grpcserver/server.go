@@ -12,9 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"speech-recognition/internal/genproto/speechv1"
-	"speech-recognition/internal/recognition"
-	"speech-recognition/internal/vad"
+	"speech-recognition/internal/gateway/genproto/speechv1"
+	"speech-recognition/internal/usecase/recognition"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -54,12 +53,20 @@ type MicStream interface {
 	Close() error
 }
 
+// DetectorFactory builds a voice detector for a sample rate and VAD mode. The
+// concrete domain detector is injected from the command, so this package never
+// imports the domain package directly.
+type DetectorFactory interface {
+	NewDetector(sampleRate, mode int) recognition.VoiceDetector
+}
+
 // Server implements the SpeechRecognition gRPC service.
 type Server struct {
 	speechv1.UnimplementedSpeechRecognitionServer
 
 	engine            Engine
 	mic               Microphone
+	detectors         DetectorFactory
 	defaultSampleRate int
 	calibration       time.Duration
 
@@ -69,12 +76,14 @@ type Server struct {
 }
 
 // New returns a Server backed by engine. defaultSampleRate is used when a
-// client omits one; mic (which may be nil to disable RecognizeMicrophone)
-// supplies the server's microphone, calibrated for the given duration.
-func New(engine Engine, mic Microphone, defaultSampleRate int, calibration time.Duration) *Server {
+// client omits one; mic and detectors (which may be nil to disable
+// RecognizeMicrophone) supply the server's microphone and the voice detector
+// built per stream, calibrated for the given duration.
+func New(engine Engine, mic Microphone, detectors DetectorFactory, defaultSampleRate int, calibration time.Duration) *Server {
 	return &Server{
 		engine:            engine,
 		mic:               mic,
+		detectors:         detectors,
 		defaultSampleRate: defaultSampleRate,
 		calibration:       calibration,
 	}
@@ -160,26 +169,28 @@ func (s *Server) RecognizeMicrophone(req *speechv1.RecognizeMicrophoneRequest, s
 	}
 	defer func() { _ = rec.Close() }()
 
-	detector := vad.New(s.defaultSampleRate, int(req.GetVadMode()))
+	detector := s.detectors.NewDetector(s.defaultSampleRate, int(req.GetVadMode()))
 	printer := &streamPrinter{stream: stream}
 	svc := recognition.NewService(micStream, detector, rec, printer)
 
 	if err := svc.Calibrate(ctx, s.calibration); err != nil {
 		return micStatus(err, "calibration")
 	}
-	if err := svc.Run(ctx); err != nil {
-		return micStatus(err, "recognition")
-	}
-	return nil
+	// Service.Run only returns on cancellation or a fatal read error (never nil).
+	return micStatus(svc.Run(ctx), "recognition")
 }
 
 // micStatus maps a use-case error to a gRPC status, treating cancellation as a
 // clean client disconnect.
 func micStatus(err error, stage string) error {
-	if errors.Is(err, context.Canceled) {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, context.Canceled):
 		return status.Error(codes.Canceled, "stream cancelled")
+	default:
+		return status.Errorf(codes.Internal, "%s: %v", stage, err)
 	}
-	return status.Errorf(codes.Internal, "%s: %v", stage, err)
 }
 
 // streamSource adapts the inbound gRPC stream to recognition.AudioSource.

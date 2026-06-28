@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"speech-recognition/internal/genproto/speechv1"
+	"speech-recognition/internal/gateway/genproto/speechv1"
+	"speech-recognition/internal/usecase/recognition"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -62,6 +63,30 @@ type fakeMicStream struct {
 func (s *fakeMicStream) Read() ([]byte, error) { return s.frame, nil }
 func (s *fakeMicStream) Close() error          { s.mic.closed++; return nil }
 
+// fakeDetector treats every frame as speech.
+type fakeDetector struct{}
+
+func (fakeDetector) Calibrate([]byte)            {}
+func (fakeDetector) IsSpeech([]byte) bool        { return true }
+func (fakeDetector) CalculateRMS([]byte) float64 { return 0.5 }
+func (fakeDetector) UpdateThreshold([]byte)      {}
+func (fakeDetector) Threshold() float64          { return 0.1 }
+func (fakeDetector) NoiseLevel() float64         { return 0.05 }
+
+// fakeDetectorFactory records how it was called and hands out a fakeDetector.
+type fakeDetectorFactory struct {
+	calls      int
+	sampleRate int
+	mode       int
+}
+
+func (f *fakeDetectorFactory) NewDetector(sampleRate, mode int) recognition.VoiceDetector {
+	f.calls++
+	f.sampleRate = sampleRate
+	f.mode = mode
+	return fakeDetector{}
+}
+
 // loudFrame returns a PCM frame whose RMS is well above the VAD threshold, so a
 // real vad detector classifies it as speech.
 func loudFrame() []byte {
@@ -78,16 +103,16 @@ func loudFrame() []byte {
 func dialServer(t *testing.T, defaultSampleRate int) (speechv1.SpeechRecognitionClient, *fakeEngine) {
 	t.Helper()
 	engine := &fakeEngine{rec: &fakeRecognizer{partial: "he", flush: "hello"}}
-	return newTestClient(t, engine, nil, defaultSampleRate, 0), engine
+	return newTestClient(t, engine, nil, nil, defaultSampleRate, 0), engine
 }
 
 // newTestClient starts a Server with the given collaborators over bufconn.
-func newTestClient(t *testing.T, engine Engine, mic Microphone, defaultSampleRate int, calibration time.Duration) speechv1.SpeechRecognitionClient {
+func newTestClient(t *testing.T, engine Engine, mic Microphone, detectors DetectorFactory, defaultSampleRate int, calibration time.Duration) speechv1.SpeechRecognitionClient {
 	t.Helper()
 
 	lis := bufconn.Listen(1024 * 1024)
 	srv := grpc.NewServer()
-	speechv1.RegisterSpeechRecognitionServer(srv, New(engine, mic, defaultSampleRate, calibration))
+	speechv1.RegisterSpeechRecognitionServer(srv, New(engine, mic, detectors, defaultSampleRate, calibration))
 	go func() { _ = srv.Serve(lis) }()
 
 	conn, err := grpc.NewClient(
@@ -179,7 +204,7 @@ func TestRecognizeMicrophoneStreamsTranscripts(t *testing.T) {
 	engine := &fakeEngine{rec: &fakeRecognizer{partial: "he"}}
 	// calibration 0 keeps the VAD at its lenient initial threshold so the loud
 	// frames register as speech immediately.
-	client := newTestClient(t, engine, mic, 16000, 0)
+	client := newTestClient(t, engine, mic, &fakeDetectorFactory{}, 16000, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -199,6 +224,33 @@ func TestRecognizeMicrophoneStreamsTranscripts(t *testing.T) {
 		t.Errorf("mic opened %d times, want 1", mic.opened)
 	}
 
+	cancel()
+}
+
+func TestRecognizeMicrophoneUsesInjectedDetector(t *testing.T) {
+	mic := &fakeMic{frame: loudFrame()}
+	engine := &fakeEngine{rec: &fakeRecognizer{partial: "he"}}
+	factory := &fakeDetectorFactory{}
+	client := newTestClient(t, engine, mic, factory, 16000, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream, err := client.RecognizeMicrophone(ctx, &speechv1.RecognizeMicrophoneRequest{VadMode: 2})
+	if err != nil {
+		t.Fatalf("RecognizeMicrophone: %v", err)
+	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatalf("Recv: %v", err)
+	}
+
+	// The detector must come from the injected factory (not constructed inside
+	// grpcserver), built for the requested sample rate and VAD mode.
+	if factory.calls != 1 {
+		t.Errorf("detector factory calls = %d, want 1", factory.calls)
+	}
+	if factory.sampleRate != 16000 || factory.mode != 2 {
+		t.Errorf("factory called with (sampleRate=%d, mode=%d), want (16000, 2)", factory.sampleRate, factory.mode)
+	}
 	cancel()
 }
 
@@ -268,7 +320,7 @@ func TestRecognizeRejectsTooManyNonAudio(t *testing.T) {
 func TestRecognizeMicrophoneRejectsConcurrent(t *testing.T) {
 	mic := &fakeMic{frame: loudFrame()}
 	engine := &fakeEngine{rec: &fakeRecognizer{partial: "he"}}
-	client := newTestClient(t, engine, mic, 16000, 0)
+	client := newTestClient(t, engine, mic, &fakeDetectorFactory{}, 16000, 0)
 
 	ctxA, cancelA := context.WithCancel(context.Background())
 	defer cancelA()
