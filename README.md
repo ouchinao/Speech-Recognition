@@ -96,6 +96,27 @@ Flags:
 | `-models` | `./models/vosk-model-ja-0.22` | Path to the VOSK model |
 | `-sample-rate` | `16000` | Default sample rate when the client omits one |
 | `-calibration-time` | `5s` | Calibration duration for `RecognizeMicrophone` |
+| `-tls-cert` / `-tls-key` | _(none)_ | PEM cert+key; enables TLS. Without them the server logs a warning and serves plaintext |
+| `-auth-token` | `$STT_AUTH_TOKEN` | Bearer token clients must send; empty disables auth (with a warning) |
+| `-max-streams` | `64` | Maximum concurrent recognition streams (`ResourceExhausted` beyond it) |
+| `-max-conn-idle` | `5m` | Close a connection after it has been idle this long |
+
+### Security & reliability
+
+The server is wrapped with gRPC interceptors (`internal/gateway/interceptor`):
+
+- **Authentication** — when `-auth-token` (or `$STT_AUTH_TOKEN`) is set, every
+  RPC must carry `authorization: Bearer <token>` metadata (constant-time
+  compared); otherwise it is rejected with `Unauthenticated`.
+- **TLS** — supply `-tls-cert`/`-tls-key` to serve over TLS. **Run with both TLS
+  and a token in production**; without them the server prints a warning.
+- **Panic recovery** — a handler panic becomes an `Internal` error instead of
+  crashing the process.
+- **Concurrency limit** — at most `-max-streams` live streams; excess streams
+  get `ResourceExhausted`, bounding memory (one VOSK recognizer per stream).
+- **Idle reaping** — `-max-conn-idle` keepalive closes idle connections.
+
+Example client metadata: `grpcurl -H "authorization: Bearer $STT_AUTH_TOKEN" ...`.
 
 The service ([`proto/speech/v1/speech.proto`](proto/speech/v1/speech.proto))
 offers two RPCs, matching the two deployment topologies:
