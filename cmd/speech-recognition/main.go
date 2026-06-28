@@ -12,12 +12,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"speech-recognition/internal/audio"
-	"speech-recognition/internal/config"
-	"speech-recognition/internal/output"
-	"speech-recognition/internal/recognition"
-	"speech-recognition/internal/recognizer"
-	"speech-recognition/internal/vad"
+	"speech-recognition/internal/domain/vad"
+	"speech-recognition/internal/gateway/output"
+	"speech-recognition/internal/infrastructure/audio"
+	"speech-recognition/internal/infrastructure/config"
+	"speech-recognition/internal/infrastructure/recognizer"
+	"speech-recognition/internal/usecase/recognition"
 )
 
 func main() {

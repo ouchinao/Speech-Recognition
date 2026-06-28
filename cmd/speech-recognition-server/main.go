@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"speech-recognition/internal/audio"
-	"speech-recognition/internal/genproto/speechv1"
-	"speech-recognition/internal/grpcserver"
-	"speech-recognition/internal/recognizer"
+	"speech-recognition/internal/gateway/genproto/speechv1"
+	"speech-recognition/internal/gateway/grpcserver"
+	"speech-recognition/internal/infrastructure/audio"
+	"speech-recognition/internal/infrastructure/recognizer"
 
 	"google.golang.org/grpc"
 )

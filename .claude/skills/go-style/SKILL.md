@@ -48,7 +48,7 @@ official references. When in doubt, run `gofmt`, `go vet`, and `golangci-lint`.
   implemented. In this repo the `recognition` use case declares `AudioSource`,
   `VoiceDetector`, `Recognizer`, `Printer`; the `audio`/`recognizer`/`output`
   packages just satisfy them structurally.
-- Keep `internal/vad` and `internal/config` dependency-free (stdlib only).
+- Keep `domain/vad` and `usecase/recognition` dependency-free (stdlib only).
 - Keep `main` a thin composition root: parse config, build drivers, wire, run.
 
 ## Context & concurrency

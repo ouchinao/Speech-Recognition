@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"speech-recognition/internal/genproto/speechv1"
+	"speech-recognition/internal/gateway/genproto/speechv1"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
