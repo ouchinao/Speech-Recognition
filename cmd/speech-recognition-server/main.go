@@ -13,10 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"speech-recognition/internal/domain/vad"
 	"speech-recognition/internal/gateway/genproto/speechv1"
 	"speech-recognition/internal/gateway/grpcserver"
 	"speech-recognition/internal/infrastructure/audio"
 	"speech-recognition/internal/infrastructure/recognizer"
+	"speech-recognition/internal/usecase/recognition"
 
 	"google.golang.org/grpc"
 )
@@ -49,7 +51,13 @@ func run() error {
 	}
 
 	grpcServer := grpc.NewServer()
-	server := grpcserver.New(voskEngine{model: model}, portAudioMic{framesPerBuffer: micFramesPerBuffer}, *sampleRate, *calibration)
+	server := grpcserver.New(
+		voskEngine{model: model},
+		portAudioMic{framesPerBuffer: micFramesPerBuffer},
+		vadDetectorFactory{},
+		*sampleRate,
+		*calibration,
+	)
 	speechv1.RegisterSpeechRecognitionServer(grpcServer, server)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -95,4 +103,12 @@ func (m portAudioMic) Open(sampleRate int) (grpcserver.MicStream, error) {
 		return nil, err
 	}
 	return capture, nil
+}
+
+// vadDetectorFactory adapts the domain VAD constructor to
+// grpcserver.DetectorFactory, so the gateway never imports the domain package.
+type vadDetectorFactory struct{}
+
+func (vadDetectorFactory) NewDetector(sampleRate, mode int) recognition.VoiceDetector {
+	return vad.New(sampleRate, mode)
 }
